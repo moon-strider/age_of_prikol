@@ -9,6 +9,7 @@ const camera_mod = @import("camera.zig");
 const ui_mod = @import("ui.zig");
 const background = @import("background.zig");
 const particles = @import("particles.zig");
+const PostProcess = @import("postprocess.zig").PostProcess;
 
 pub const GameState = enum { playing, victory, defeat };
 
@@ -27,8 +28,11 @@ pub const Game = struct {
     camera: camera_mod.Camera,
     ui: ui_mod.UI,
     player_build_queue: ui_mod.BuildQueue,
+    postprocess: *PostProcess,
+    prev_player_hp: f32,
+    prev_enemy_hp: f32,
 
-    pub fn init() Game {
+    pub fn init(postprocess: *PostProcess) Game {
         particles.init();
         background.init();
 
@@ -47,13 +51,16 @@ pub const Game = struct {
             .camera = camera_mod.Camera.init(),
             .ui = ui_mod.UI.init(),
             .player_build_queue = ui_mod.BuildQueue.init(),
+            .postprocess = postprocess,
+            .prev_player_hp = config.BASE_HP,
+            .prev_enemy_hp = config.BASE_HP,
         };
     }
 
     pub fn update(self: *Game, dt: f32) void {
         if (self.state != .playing) {
             if (rl.isKeyPressed(.r)) {
-                self.* = Game.init();
+                self.* = Game.init(self.postprocess);
             }
             return;
         }
@@ -61,6 +68,9 @@ pub const Game = struct {
         self.camera.update(dt);
         background.update(dt);
         particles.update(dt);
+
+        const light_pos = self.postprocess.getLightPosition(self.camera.x);
+        background.setLightPosition(light_pos.x, light_pos.y);
 
         self.income_timer += dt;
         if (self.income_timer >= 1.0) {
@@ -93,6 +103,12 @@ pub const Game = struct {
         self.ai.gold = enemy_gold;
         self.player_xp = player_xp;
         self.ai.xp = enemy_xp;
+
+        if (self.player_base.hp < self.prev_player_hp - 20) {
+            self.postprocess.triggerImpact();
+        }
+        self.prev_player_hp = self.player_base.hp;
+        self.prev_enemy_hp = self.enemy_base.hp;
 
         self.player_tower.update(dt, &self.units, &self.player_gold, &self.ai.gold, &self.player_xp, &self.ai.xp);
         self.enemy_tower.update(dt, &self.units, &self.player_gold, &self.ai.gold, &self.player_xp, &self.ai.xp);
@@ -160,7 +176,7 @@ pub const Game = struct {
         }
     }
 
-    pub fn draw(self: *Game) void {
+    pub fn drawWorld(self: *Game) void {
         background.draw(self.camera.x);
 
         self.player_base.draw(self.camera.x);
@@ -171,6 +187,13 @@ pub const Game = struct {
 
         self.units.draw(self.camera.x);
         particles.draw(self.camera.x);
+    }
+
+    pub fn drawUI(self: *Game) void {
+        self.player_base.drawUI(self.camera.x);
+        self.enemy_base.drawUI(self.camera.x);
+
+        self.units.drawHealthBars(self.camera.x);
 
         self.ui.draw(
             self.player_gold,
@@ -186,10 +209,6 @@ pub const Game = struct {
         );
 
         self.drawCameraIndicator();
-
-        if (self.state != .playing) {
-            self.drawEndScreen();
-        }
     }
 
     fn drawCameraIndicator(self: *Game) void {
@@ -215,7 +234,7 @@ pub const Game = struct {
         rl.drawText("<A/D>", @intFromFloat(indicator_x - 50), @intFromFloat(indicator_y - 2), 12, .{ .r = 150, .g = 150, .b = 170, .a = 200 });
     }
 
-    fn drawEndScreen(self: *Game) void {
+    pub fn drawEndScreen(self: *Game) void {
         rl.drawRectangle(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT, .{ .r = 0, .g = 0, .b = 0, .a = 180 });
 
         const text: [:0]const u8 = if (self.state == .victory) "VICTORY!" else "DEFEAT";

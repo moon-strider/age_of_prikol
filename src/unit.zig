@@ -294,6 +294,16 @@ pub const UnitManager = struct {
             const base_color = getUnitColor(unit.unit_type);
 
             self.drawUnit(screen_x, unit.y, stats.width, stats.height, base_color, unit.unit_type, unit.is_player);
+        }
+    }
+
+    pub fn drawHealthBars(self: *UnitManager, camera_x: f32) void {
+        for (self.units[0..self.count]) |unit| {
+            if (!unit.active) continue;
+            const screen_x = unit.x - camera_x;
+            if (screen_x < -100 or screen_x > config.SCREEN_WIDTH + 100) continue;
+
+            const stats = unit.getStats();
             self.drawHealthBar(screen_x, unit.y - 10, stats.width, unit.hp, unit.max_hp);
         }
 

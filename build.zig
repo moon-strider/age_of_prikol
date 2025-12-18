@@ -25,10 +25,17 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const install_shaders = b.addInstallDirectory(.{
+        .source_dir = b.path("shaders"),
+        .install_dir = .{ .custom = "" },
+        .install_subdir = "shaders",
+    });
+    b.getInstallStep().dependOn(&install_shaders.step);
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
+    run_cmd.setCwd(b.path("."));
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 }
-

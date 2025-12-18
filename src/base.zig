@@ -56,7 +56,13 @@ pub const Base = struct {
                 flag_color,
             );
         }
+    }
 
+    pub fn drawUI(self: Base, camera_x: f32) void {
+        const screen_x = self.x - camera_x;
+        if (screen_x < -config.BASE_WIDTH or screen_x > config.SCREEN_WIDTH + config.BASE_WIDTH) return;
+
+        const flag_top_y = config.BASE_Y - 60;
         drawHealthBar(screen_x, flag_top_y - 30, config.BASE_WIDTH, self.hp, self.max_hp);
         drawHpText(screen_x, flag_top_y - 55, self.hp, self.max_hp);
     }

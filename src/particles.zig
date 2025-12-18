@@ -13,9 +13,10 @@ const Particle = struct {
     color: rl.Color,
     particle_type: ParticleType,
     active: bool,
+    glow: bool,
 };
 
-const ParticleType = enum { dust, hit, death, projectile };
+const ParticleType = enum { dust, hit, death, projectile, spark, explosion };
 
 const LaserBeam = struct {
     from_x: f32,
@@ -66,6 +67,7 @@ pub fn spawnDust(x: f32, y: f32) void {
                 .color = .{ .r = 160, .g = 140, .b = 120, .a = 150 },
                 .particle_type = .dust,
                 .active = true,
+                .glow = false,
             };
             return;
         }
@@ -74,24 +76,28 @@ pub fn spawnDust(x: f32, y: f32) void {
 
 pub fn spawnHit(x: f32, y: f32, is_player_attack: bool) void {
     const rand = prng.random();
-    const count: u32 = 6;
+    const count: u32 = 8;
     var spawned: u32 = 0;
 
     for (&particles) |*p| {
         if (!p.active and spawned < count) {
             const angle = rand.float(f32) * std.math.pi * 2;
-            const speed = 80 + rand.float(f32) * 120;
+            const speed = 100 + rand.float(f32) * 150;
+            const is_spark = spawned < 3;
             p.* = .{
                 .x = x,
                 .y = y,
                 .vx = @cos(angle) * speed,
                 .vy = @sin(angle) * speed,
-                .life = 0.2 + rand.float(f32) * 0.15,
-                .max_life = 0.35,
-                .size = 4 + rand.float(f32) * 4,
-                .color = if (is_player_attack) .{ .r = 100, .g = 180, .b = 255, .a = 255 } else .{ .r = 255, .g = 120, .b = 80, .a = 255 },
-                .particle_type = .hit,
+                .life = 0.25 + rand.float(f32) * 0.2,
+                .max_life = 0.45,
+                .size = if (is_spark) 2 + rand.float(f32) * 2 else 5 + rand.float(f32) * 5,
+                .color = if (is_player_attack)
+                    if (is_spark) .{ .r = 200, .g = 230, .b = 255, .a = 255 } else .{ .r = 100, .g = 180, .b = 255, .a = 255 }
+                else if (is_spark) .{ .r = 255, .g = 230, .b = 150, .a = 255 } else .{ .r = 255, .g = 120, .b = 80, .a = 255 },
+                .particle_type = if (is_spark) .spark else .hit,
                 .active = true,
+                .glow = true,
             };
             spawned += 1;
         }
@@ -100,24 +106,54 @@ pub fn spawnHit(x: f32, y: f32, is_player_attack: bool) void {
 
 pub fn spawnDeath(x: f32, y: f32, is_player_unit: bool) void {
     const rand = prng.random();
-    const count: u32 = 15;
+    const count: u32 = 20;
     var spawned: u32 = 0;
 
     for (&particles) |*p| {
         if (!p.active and spawned < count) {
             const angle = rand.float(f32) * std.math.pi * 2;
-            const speed = 50 + rand.float(f32) * 150;
+            const speed = 60 + rand.float(f32) * 180;
+            const is_glow = spawned < 5;
             p.* = .{
                 .x = x + rand.float(f32) * 20 - 10,
                 .y = y + rand.float(f32) * 20 - 10,
                 .vx = @cos(angle) * speed,
-                .vy = @sin(angle) * speed - 50,
-                .life = 0.4 + rand.float(f32) * 0.3,
-                .max_life = 0.7,
-                .size = 5 + rand.float(f32) * 8,
-                .color = if (is_player_unit) .{ .r = 70, .g = 130, .b = 220, .a = 255 } else .{ .r = 200, .g = 80, .b = 80, .a = 255 },
-                .particle_type = .death,
+                .vy = @sin(angle) * speed - 60,
+                .life = 0.5 + rand.float(f32) * 0.4,
+                .max_life = 0.9,
+                .size = if (is_glow) 8 + rand.float(f32) * 6 else 5 + rand.float(f32) * 8,
+                .color = if (is_player_unit)
+                    if (is_glow) .{ .r = 150, .g = 200, .b = 255, .a = 255 } else .{ .r = 70, .g = 130, .b = 220, .a = 255 }
+                else if (is_glow) .{ .r = 255, .g = 180, .b = 100, .a = 255 } else .{ .r = 200, .g = 80, .b = 80, .a = 255 },
+                .particle_type = if (is_glow) .explosion else .death,
                 .active = true,
+                .glow = is_glow,
+            };
+            spawned += 1;
+        }
+    }
+}
+
+pub fn spawnExplosion(x: f32, y: f32, color: rl.Color, count: u32) void {
+    const rand = prng.random();
+    var spawned: u32 = 0;
+
+    for (&particles) |*p| {
+        if (!p.active and spawned < count) {
+            const angle = rand.float(f32) * std.math.pi * 2;
+            const speed = 80 + rand.float(f32) * 200;
+            p.* = .{
+                .x = x,
+                .y = y,
+                .vx = @cos(angle) * speed,
+                .vy = @sin(angle) * speed - 40,
+                .life = 0.3 + rand.float(f32) * 0.3,
+                .max_life = 0.6,
+                .size = 6 + rand.float(f32) * 10,
+                .color = color,
+                .particle_type = .explosion,
+                .active = true,
+                .glow = true,
             };
             spawned += 1;
         }
@@ -133,14 +169,20 @@ pub fn spawnTowerLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, color: rl
                 2 => .spiral,
                 else => .plasma,
             };
+            const bright_color = rl.Color{
+                .r = @intCast(@min(255, @as(u16, color.r) + 50)),
+                .g = @intCast(@min(255, @as(u16, color.g) + 50)),
+                .b = @intCast(@min(255, @as(u16, color.b) + 50)),
+                .a = 255,
+            };
             l.* = .{
                 .from_x = from_x,
                 .from_y = from_y,
                 .to_x = to_x,
                 .to_y = to_y,
-                .life = 0.2,
-                .max_life = 0.2,
-                .color = color,
+                .life = 0.25,
+                .max_life = 0.25,
+                .color = bright_color,
                 .laser_type = laser_type,
                 .active = true,
             };
@@ -152,6 +194,12 @@ pub fn spawnTowerLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, color: rl
 pub fn spawnUnitAttackLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, color: rl.Color, is_arc: bool) void {
     for (&lasers) |*l| {
         if (!l.active) {
+            const bright_color = rl.Color{
+                .r = @intCast(@min(255, @as(u16, color.r) + 30)),
+                .g = @intCast(@min(255, @as(u16, color.g) + 30)),
+                .b = @intCast(@min(255, @as(u16, color.b) + 30)),
+                .a = 255,
+            };
             l.* = .{
                 .from_x = from_x,
                 .from_y = from_y,
@@ -159,7 +207,7 @@ pub fn spawnUnitAttackLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, colo
                 .to_y = to_y,
                 .life = 0.2,
                 .max_life = 0.2,
-                .color = color,
+                .color = bright_color,
                 .laser_type = if (is_arc) .arc else .straight,
                 .active = true,
             };
@@ -176,10 +224,16 @@ pub fn update(dt: f32) void {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
 
-            if (p.particle_type != .dust) {
-                p.vy += 200 * dt;
-            } else {
-                p.vy += 100 * dt;
+            const gravity: f32 = switch (p.particle_type) {
+                .dust => 100,
+                .spark => 300,
+                .explosion => 150,
+                else => 200,
+            };
+            p.vy += gravity * dt;
+
+            if (p.particle_type == .spark) {
+                p.vx *= 0.95;
             }
 
             p.life -= dt;
@@ -196,38 +250,13 @@ pub fn update(dt: f32) void {
 }
 
 pub fn draw(camera_x: f32) void {
-    for (&particles) |*p| {
-        if (p.active) {
-            const screen_x = p.x - camera_x;
-            if (screen_x < -50 or screen_x > config.SCREEN_WIDTH + 50) continue;
-
-            const alpha_ratio = p.life / p.max_life;
-            const alpha: u8 = @intFromFloat(@max(0, @min(255, alpha_ratio * @as(f32, @floatFromInt(p.color.a)))));
-            const current_size = p.size * (0.5 + alpha_ratio * 0.5);
-
-            const draw_color = rl.Color{ .r = p.color.r, .g = p.color.g, .b = p.color.b, .a = alpha };
-
-            switch (p.particle_type) {
-                .dust => rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size, draw_color),
-                .hit => {
-                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size, draw_color);
-                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size * 0.5, .{ .r = 255, .g = 255, .b = 255, .a = alpha });
-                },
-                .death => {
-                    rl.drawRectangle(@intFromFloat(screen_x - current_size / 2), @intFromFloat(p.y - current_size / 2), @intFromFloat(current_size), @intFromFloat(current_size), draw_color);
-                },
-                .projectile => {},
-            }
-        }
-    }
-
     for (&lasers) |*l| {
         if (l.active) {
             const from_screen_x = l.from_x - camera_x;
             const to_screen_x = l.to_x - camera_x;
 
             const life_ratio = l.life / l.max_life;
-            const thickness: f32 = 5.0 * life_ratio;
+            const thickness: f32 = 6.0 * life_ratio;
             const alpha: u8 = @intFromFloat(255 * life_ratio);
             const draw_color = rl.Color{ .r = l.color.r, .g = l.color.g, .b = l.color.b, .a = alpha };
 
@@ -240,9 +269,55 @@ pub fn draw(camera_x: f32) void {
             }
         }
     }
+
+    for (&particles) |*p| {
+        if (p.active) {
+            const screen_x = p.x - camera_x;
+            if (screen_x < -50 or screen_x > config.SCREEN_WIDTH + 50) continue;
+
+            const alpha_ratio = p.life / p.max_life;
+            const alpha: u8 = @intFromFloat(@max(0, @min(255, alpha_ratio * @as(f32, @floatFromInt(p.color.a)))));
+            const current_size = p.size * (0.5 + alpha_ratio * 0.5);
+
+            const draw_color = rl.Color{ .r = p.color.r, .g = p.color.g, .b = p.color.b, .a = alpha };
+
+            if (p.glow) {
+                const glow_size = current_size * 2.5;
+                const glow_alpha: u8 = @intFromFloat(@max(0, @min(255, @as(f32, @floatFromInt(alpha)) * 0.3)));
+                const glow_color = rl.Color{ .r = p.color.r, .g = p.color.g, .b = p.color.b, .a = glow_alpha };
+                rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), glow_size, glow_color);
+            }
+
+            switch (p.particle_type) {
+                .dust => rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size, draw_color),
+                .hit => {
+                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size, draw_color);
+                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size * 0.5, .{ .r = 255, .g = 255, .b = 255, .a = alpha });
+                },
+                .spark => {
+                    const trail_x = screen_x - p.vx * 0.02;
+                    const trail_y = p.y - p.vy * 0.02;
+                    rl.drawLineEx(.{ .x = @floatCast(trail_x), .y = trail_y }, .{ .x = @floatCast(screen_x), .y = p.y }, current_size, draw_color);
+                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size * 0.7, .{ .r = 255, .g = 255, .b = 255, .a = alpha });
+                },
+                .death => {
+                    rl.drawRectangle(@intFromFloat(screen_x - current_size / 2), @intFromFloat(p.y - current_size / 2), @intFromFloat(current_size), @intFromFloat(current_size), draw_color);
+                },
+                .explosion => {
+                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size, draw_color);
+                    rl.drawCircle(@intFromFloat(screen_x), @intFromFloat(p.y), current_size * 0.6, .{ .r = 255, .g = 255, .b = 200, .a = alpha });
+                },
+                .projectile => {},
+            }
+        }
+    }
 }
 
 fn drawStraightLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f32, color: rl.Color) void {
+    const glow_thickness = thickness * 3;
+    const glow_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.25);
+    rl.drawLineEx(.{ .x = from_x, .y = from_y }, .{ .x = to_x, .y = to_y }, glow_thickness, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
+
     rl.drawLineEx(.{ .x = from_x, .y = from_y }, .{ .x = to_x, .y = to_y }, thickness, color);
     if (thickness > 2) {
         rl.drawLineEx(.{ .x = from_x, .y = from_y }, .{ .x = to_x, .y = to_y }, thickness * 0.4, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
@@ -265,6 +340,8 @@ fn drawArcLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f32, 
         const arc_offset = @sin(t * std.math.pi) * arc_height;
         const curr_y = base_y - arc_offset;
 
+        const glow_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.25);
+        rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness * 3, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
         rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness, color);
 
         prev_x = curr_x;
@@ -298,7 +375,7 @@ fn drawSineLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f32,
     const dist = @sqrt(dx * dx + dy * dy);
     const nx = -dy / dist;
     const ny = dx / dist;
-    const wave_amp: f32 = 15 * life_ratio;
+    const wave_amp: f32 = 18 * life_ratio;
     const wave_freq: f32 = 6;
 
     var prev_x = from_x;
@@ -308,10 +385,12 @@ fn drawSineLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f32,
         const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
         const base_x = from_x + dx * t;
         const base_y = from_y + dy * t;
-        const wave = @sin(t * std.math.pi * wave_freq + game_time * 20) * wave_amp;
+        const wave = @sin(t * std.math.pi * wave_freq + game_time * 25) * wave_amp;
         const curr_x = base_x + nx * wave;
         const curr_y = base_y + ny * wave;
 
+        const glow_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.3);
+        rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness * 3.5, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
         rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness, color);
 
         prev_x = curr_x;
@@ -325,7 +404,7 @@ fn drawSineLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f32,
             const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
             const base_x = from_x + dx * t;
             const base_y = from_y + dy * t;
-            const wave = @sin(t * std.math.pi * wave_freq + game_time * 20) * wave_amp;
+            const wave = @sin(t * std.math.pi * wave_freq + game_time * 25) * wave_amp;
             const curr_x = base_x + nx * wave;
             const curr_y = base_y + ny * wave;
             rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness * 0.4, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
@@ -342,7 +421,7 @@ fn drawSpiralLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f3
     const dist = @sqrt(dx * dx + dy * dy);
     const nx = -dy / dist;
     const ny = dx / dist;
-    const spiral_amp: f32 = 20 * life_ratio;
+    const spiral_amp: f32 = 25 * life_ratio;
     const rotations: f32 = 4;
 
     var prev_x = from_x;
@@ -352,13 +431,15 @@ fn drawSpiralLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f3
         const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(segments));
         const base_x = from_x + dx * t;
         const base_y = from_y + dy * t;
-        const angle = t * std.math.pi * 2 * rotations + game_time * 15;
+        const angle = t * std.math.pi * 2 * rotations + game_time * 18;
         const radius = spiral_amp * t * (1 - t) * 4;
         const offset_x = @cos(angle) * radius * nx - @sin(angle) * radius * (dx / dist);
         const offset_y = @cos(angle) * radius * ny - @sin(angle) * radius * (dy / dist);
         const curr_x = base_x + offset_x;
         const curr_y = base_y + offset_y;
 
+        const glow_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.3);
+        rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness * 3, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
         rl.drawLineEx(.{ .x = prev_x, .y = prev_y }, .{ .x = curr_x, .y = curr_y }, thickness, color);
 
         prev_x = curr_x;
@@ -376,7 +457,7 @@ fn drawPlasmaLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f3
     const ny = dx / dist;
 
     const segments: usize = 16;
-    const jitter_amp: f32 = 25 * life_ratio;
+    const jitter_amp: f32 = 30 * life_ratio;
 
     var points_x: [17]f32 = undefined;
     var points_y: [17]f32 = undefined;
@@ -399,6 +480,11 @@ fn drawPlasmaLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f3
     points_x[segments] = to_x;
     points_y[segments] = to_y;
 
+    const glow_alpha: u8 = @intFromFloat(@as(f32, @floatFromInt(color.a)) * 0.25);
+    for (0..segments) |i| {
+        rl.drawLineEx(.{ .x = points_x[i], .y = points_y[i] }, .{ .x = points_x[i + 1], .y = points_y[i + 1] }, thickness * 4, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
+    }
+
     for (0..segments) |i| {
         rl.drawLineEx(.{ .x = points_x[i], .y = points_y[i] }, .{ .x = points_x[i + 1], .y = points_y[i + 1] }, thickness * 1.5, color);
     }
@@ -412,7 +498,7 @@ fn drawPlasmaLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f3
         if (bi < segments) {
             const branch_hash = (time_seed +% @as(u32, @intCast(bi)) *% 3571) % 1000;
             const branch_angle = (@as(f32, @floatFromInt(branch_hash)) / 500.0 - 1.0) * std.math.pi * 0.4;
-            const branch_len = 40 * life_ratio;
+            const branch_len = 50 * life_ratio;
             const branch_dir_x = dx / dist;
             const branch_dir_y = dy / dist;
             const rot_x = branch_dir_x * @cos(branch_angle) - branch_dir_y * @sin(branch_angle);
@@ -421,21 +507,24 @@ fn drawPlasmaLaser(from_x: f32, from_y: f32, to_x: f32, to_y: f32, thickness: f3
             const bx = points_x[bi];
             const by = points_y[bi];
             const bend_hash = (time_seed +% @as(u32, @intCast(bi)) *% 1237) % 1000;
-            const bend = (@as(f32, @floatFromInt(bend_hash)) / 500.0 - 1.0) * 15;
+            const bend = (@as(f32, @floatFromInt(bend_hash)) / 500.0 - 1.0) * 20;
 
             const mid_bx = bx + rot_x * branch_len * 0.5 + nx * bend;
             const mid_by = by + rot_y * branch_len * 0.5 + ny * bend;
             const end_bx = bx + rot_x * branch_len;
             const end_by = by + rot_y * branch_len;
 
+            rl.drawLineEx(.{ .x = bx, .y = by }, .{ .x = mid_bx, .y = mid_by }, thickness * 2, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
             rl.drawLineEx(.{ .x = bx, .y = by }, .{ .x = mid_bx, .y = mid_by }, thickness * 0.8, color);
+            rl.drawLineEx(.{ .x = mid_bx, .y = mid_by }, .{ .x = end_bx, .y = end_by }, thickness * 1.5, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
             rl.drawLineEx(.{ .x = mid_bx, .y = mid_by }, .{ .x = end_bx, .y = end_by }, thickness * 0.5, color);
 
-            rl.drawCircle(@intFromFloat(end_bx), @intFromFloat(end_by), 3 * life_ratio, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
+            rl.drawCircle(@intFromFloat(end_bx), @intFromFloat(end_by), 5 * life_ratio, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
         }
     }
 
+    rl.drawCircle(@intFromFloat(from_x), @intFromFloat(from_y), 10 * life_ratio, .{ .r = color.r, .g = color.g, .b = color.b, .a = glow_alpha });
     rl.drawCircle(@intFromFloat(from_x), @intFromFloat(from_y), 6 * life_ratio, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
-    rl.drawCircle(@intFromFloat(to_x), @intFromFloat(to_y), 8 * life_ratio, color);
-    rl.drawCircle(@intFromFloat(to_x), @intFromFloat(to_y), 4 * life_ratio, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
+    rl.drawCircle(@intFromFloat(to_x), @intFromFloat(to_y), 12 * life_ratio, color);
+    rl.drawCircle(@intFromFloat(to_x), @intFromFloat(to_y), 6 * life_ratio, .{ .r = 255, .g = 255, .b = 255, .a = color.a });
 }
